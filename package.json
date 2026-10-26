@@ -1,0 +1,14 @@
+{
+  "name": "latency-monitor",
+  "version": "2.0.0",
+  "description": "Office connection monitor with dashboard, RTO log, email alerts and daily PDF report",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test-email": "node server.js --test-email"
+  },
+  "dependencies": {
+    "nodemailer": "^6.9.16",
+    "pdfkit": "^0.15.0"
+  }
+}

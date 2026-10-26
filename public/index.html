@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AML1 Connection</title>
+<style>
+  :root {
+    --bg: #eef2f1; --card: #ffffff; --ink: #14221f; --muted: #5d6f6a; --line: #d5dedb;
+    --ok: #0f766e; --warn: #b45309; --bad: #b91c1c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f1816; --card: #172321; --ink: #e5efec; --muted: #93a8a2; --line: #263631;
+            --ok: #4fd1c0; --warn: #f0a64a; --bad: #f87171; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; padding: 24px 16px 56px; }
+  main { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; } h2 { font-size: 1.1rem; margin: 32px 0 12px; }
+  .sub { color: var(--muted); margin: 0; }
+  .head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+  .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .btn { font: inherit; font-size: .9rem; color: var(--ink); background: var(--card); border: 1px solid var(--line);
+         border-radius: 6px; padding: 6px 12px; cursor: pointer; text-decoration: none; }
+  .btn:hover { border-color: var(--muted); } .btn:focus-visible { outline: 2px solid var(--ok); outline-offset: 2px; }
+  .btn.on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .row { background: var(--card); border: 1px solid var(--line); border-left-width: 6px; border-radius: 6px;
+         padding: 16px; margin-bottom: 12px; }
+  .row.ok { border-left-color: var(--ok); } .row.slow { border-left-color: var(--warn); } .row.rto { border-left-color: var(--bad); }
+  .top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+  .name { font-weight: 600; }
+  .chip { font-size: .8rem; font-weight: 600; border-radius: 999px; padding: 1px 10px; margin-left: 8px;
+          border: 1px solid currentColor; }
+  .ok .chip, .ok .ms { color: var(--ok); } .slow .chip, .slow .ms { color: var(--warn); } .rto .chip, .rto .ms { color: var(--bad); }
+  .ms { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .meta { color: var(--muted); font-size: .9rem; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 12px; margin-top: 12px; }
+  .stats b { display: block; font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+  .stats span { color: var(--muted); font-size: .8rem; }
+  .strip { display: flex; gap: 3px; margin-top: 14px; }
+  .strip i { flex: 1; height: 14px; border-radius: 2px; background: var(--ok); }
+  .strip i.warn { background: var(--warn); } .strip i.bad { background: var(--bad); }
+  svg { width: 100%; height: 56px; margin-top: 10px; display: block; }
+  .tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; }
+  .tablewrap { background: var(--card); border: 1px solid var(--line); border-radius: 6px; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+  th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; } tr:last-child td { border-bottom: 0; }
+  td.num { font-variant-numeric: tabular-nums; }
+  .t-RTO, .t-ALERT { color: var(--bad); font-weight: 600; } .t-SLOW { color: var(--warn); font-weight: 600; }
+  .t-RECOVERED { color: var(--ok); font-weight: 600; }
+  .empty { color: var(--muted); padding: 16px; margin: 0; }
+</style>
+</head>
+<body>
+<main>
+  <div class="head">
+    <div>
+      <h1>AML1 Connection</h1>
+      <p class="sub" id="sub">Checking…</p>
+    </div>
+    <div class="actions">
+      <a class="btn" href="/report.pdf" target="_blank" rel="noopener">Open today's report (PDF)</a>
+      <button class="btn" id="send" type="button">Email report now</button>
+    </div>
+  </div>
+
+  <div id="rows"><p class="empty">Waiting for the first check.</p></div>
+
+  <h2>Log</h2>
+  <div class="tabs" id="tabs"></div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Time</th><th>Target</th><th>Event</th><th>Latency</th><th>Detail</th></tr></thead>
+    <tbody id="log"></tbody>
+  </table><p class="empty" id="logEmpty" hidden>No events yet.</p></div>
+</main>
+
+<script>
+  var filter = 'ALL';
+  var FILTERS = [['ALL', 'All'], ['RTO', 'Timeouts (RTO)'], ['SLOW', 'Slow'], ['ALERT', 'Alerts']];
+  var PING = { ok: 'Normal', slow: 'Slow', rto: 'RTO' };
+  var TYPE = { RTO: 'Timeout (RTO)', SLOW: 'Slow', ALERT: 'Alert email', RECOVERED: 'Recovered' };
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function ms(v) { return v === null || v === undefined ? '-' : v + ' ms'; }
+
+  function strip(series, limit) {
+    return '<div class="strip" aria-label="Last pings">' + series.slice(-40).map(function (v) {
+      var c = v === null ? 'bad' : (v > limit ? 'warn' : '');
+      return '<i class="' + c + '" title="' + (v === null ? 'Timeout' : v + ' ms') + '"></i>';
+    }).join('') + '</div>';
+  }
+
+  function spark(series, limit) {
+    var w = 600, h = 56, good = series.filter(function (v) { return v !== null; });
+    var max = Math.max.apply(null, good.concat([limit * 1.3])), n = series.length, step = n > 1 ? w / (n - 1) : w, pts = [], ticks = '';
+    series.forEach(function (v, i) {
+      var x = (i * step).toFixed(1);
+      if (v === null) ticks += '<line x1="' + x + '" x2="' + x + '" y1="0" y2="' + h + '" stroke="var(--bad)" stroke-width="2"/>';
+      else pts.push(x + ',' + (h - (v / max) * h).toFixed(1));
+    });
+    var ly = (h - (limit / max) * h).toFixed(1);
+    return '<svg viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none" role="img" aria-label="Recent latency">' +
+      '<line x1="0" x2="' + w + '" y1="' + ly + '" y2="' + ly + '" stroke="var(--line)" stroke-dasharray="4 4"/>' + ticks +
+      '<polyline fill="none" stroke="var(--ink)" stroke-width="1.5" points="' + pts.join(' ') + '"/></svg>';
+  }
+
+  function card(d, limit) {
+    var now = !d.checked ? '…' : d.latest === null ? 'RTO' : d.latest + ' ms';
+    var base = d.baseline === null ? 'learning normal range' : 'normal about ' + d.baseline + ' ms';
+    var checked = d.lastChecked ? 'last check ' + new Date(d.lastChecked).toLocaleTimeString() : 'not checked yet';
+    var alert = d.alerting ? ' · alert email sent' + (d.since ? ' at ' + new Date(d.since).toLocaleTimeString() : '') : '';
+    var t = d.today;
+    return '<div class="row ' + d.ping + '"><div class="top"><span><span class="name">' + esc(d.target) + '</span>' +
+      '<span class="chip">' + PING[d.ping] + '</span></span><span class="ms">' + now + '</span></div>' +
+      '<div class="meta">' + checked + ' · ' + base + alert + '</div>' +
+      '<div class="stats">' +
+        '<div><b>' + (t.uptime === null ? '-' : t.uptime.toFixed(2) + '%') + '</b><span>Uptime today</span></div>' +
+        '<div><b>' + t.rto + '</b><span>Timeouts today</span></div>' +
+        '<div><b>' + ms(t.avg) + '</b><span>Average today</span></div>' +
+        '<div><b>' + ms(t.min) + '</b><span>Fastest today</span></div>' +
+        '<div><b>' + ms(t.max) + '</b><span>Slowest today</span></div>' +
+      '</div>' + strip(d.series, limit) + spark(d.series, limit) + '</div>';
+  }
+
+  function tabs() {
+    document.getElementById('tabs').innerHTML = FILTERS.map(function (f) {
+      return '<button type="button" class="btn' + (filter === f[0] ? ' on' : '') + '" data-f="' + f[0] + '">' + f[1] + '</button>';
+    }).join('');
+  }
+
+  function loadStatus() {
+    fetch('/api/status').then(function (r) { return r.json(); }).then(function (res) {
+      document.getElementById('rows').innerHTML = res.data.map(function (d) { return card(d, res.thresholdMs); }).join('');
+      document.getElementById('sub').textContent = 'Checks every ' + res.intervalSec + ' seconds. Slow means above ' + res.thresholdMs +
+        ' ms. A check with no reply in 3 seconds is logged as RTO.';
+    }).catch(function () { document.getElementById('sub').textContent = 'Cannot reach the monitor. Retrying…'; });
+  }
+
+  function loadLog() {
+    fetch('/api/logs?type=' + filter + '&limit=200').then(function (r) { return r.json(); }).then(function (rows) {
+      document.getElementById('log').innerHTML = rows.map(function (e) {
+        return '<tr><td class="num">' + new Date(e.t).toLocaleString() + '</td><td>' + esc(e.target) + '</td>' +
+          '<td class="t-' + e.type + '">' + TYPE[e.type] + '</td><td class="num">' + ms(e.ms) + '</td><td>' + esc(e.note) + '</td></tr>';
+      }).join('');
+      document.getElementById('logEmpty').hidden = rows.length > 0;
+    });
+  }
+
+  document.getElementById('tabs').addEventListener('click', function (ev) {
+    var f = ev.target.getAttribute('data-f');
+    if (f) { filter = f; tabs(); loadLog(); }
+  });
+
+  document.getElementById('send').addEventListener('click', function () {
+    var btn = this; btn.disabled = true; btn.textContent = 'Sending…';
+    fetch('/api/send-report', { method: 'POST' }).then(function (r) { return r.json(); }).then(function (res) {
+      btn.textContent = res.ok ? 'Report sent' : 'Could not send. Check the email settings.';
+    }).catch(function () { btn.textContent = 'Could not send'; }).then(function () {
+      setTimeout(function () { btn.disabled = false; btn.textContent = 'Email report now'; }, 4000);
+    });
+  });
+
+  tabs(); loadStatus(); loadLog();
+  setInterval(function () { loadStatus(); loadLog(); }, 5000);
+</script>
+</body>
+</html>

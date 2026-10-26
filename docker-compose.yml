@@ -1,0 +1,9 @@
+services:
+  latency-monitor:
+    build: .
+    env_file: .env
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data   # keeps logs and daily history across restarts
+    restart: always
